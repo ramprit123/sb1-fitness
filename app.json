@@ -1,0 +1,49 @@
+{
+  "expo": {
+    "name": "AI Fitness",
+    "slug": "ai-fitness",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "aifitness",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "description": "An AI-powered fitness app for personalized workouts and health tracking.",
+    "platforms": ["ios", "android", "web"],
+    "splash": {
+      "image": "./assets/images/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0A0A23"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.yourcompany.aifitness"
+    },
+    "android": {
+      "package": "com.yourcompany.aifitness",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "backgroundColor": "#0A0A23"
+      }
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single",
+      "favicon": "./assets/images/favicon.png",
+      "themeColor": "#0A0A23"
+    },
+    "plugins": ["expo-router", "expo-font", "expo-web-browser"],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "aiProvider": "openai",
+      "features": [
+        "personalized-workouts",
+        "activity-tracking",
+        "nutrition-advice",
+        "progress-analytics"
+      ]
+    }
+  }
+}
