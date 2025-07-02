@@ -1,42 +1,55 @@
-import React, { useState, useRef, useEffect } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TextInput,
-  TouchableOpacity,
-  ScrollView,
-  Alert,
-  Dimensions,
-} from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withTiming,
-  withSpring,
-  interpolate,
-} from 'react-native-reanimated';
 import { router } from 'expo-router';
 import {
+  Apple,
+  ArrowRight,
   Eye,
   EyeOff,
-  Mail,
   Lock,
-  ArrowRight,
-  Apple,
-  Chrome,
+  Mail,
 } from 'lucide-react-native';
-
-const { width, height } = Dimensions.get('window');
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  Alert,
+  Image,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import Animated, {
+  interpolate,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSignIn, useOAuth } from '@clerk/clerk-expo';
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [errors, setErrors] = useState<{
+    email?: string;
+    password?: string;
+    general?: string;
+  }>({});
   const mounted = useRef(false);
+
+  const { signIn, setActive, isLoaded } = useSignIn();
+  const { startOAuthFlow: startGoogleOAuthFlow } = useOAuth({
+    strategy: 'oauth_google',
+  });
+  const { startOAuthFlow: startAppleOAuthFlow } = useOAuth({
+    strategy: 'oauth_apple',
+  });
 
   const fadeAnim = useSharedValue(0);
   const slideAnim = useSharedValue(50);
@@ -58,45 +71,115 @@ export default function LoginScreen() {
     transform: [{ translateY: slideAnim.value }, { scale: scaleAnim.value }],
   }));
 
+  // Validation functions
+  const validateEmail = (email: string): string | undefined => {
+    if (!email) return 'Email is required';
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) return 'Please enter a valid email address';
+    return undefined;
+  };
+
+  const validatePassword = (password: string): string | undefined => {
+    if (!password) return 'Password is required';
+    if (password.length < 8)
+      return 'Password must be at least 8 characters long';
+    return undefined;
+  };
+
+  const validateForm = (): boolean => {
+    const newErrors: { email?: string; password?: string } = {};
+
+    const emailError = validateEmail(email);
+    const passwordError = validatePassword(password);
+
+    if (emailError) newErrors.email = emailError;
+    if (passwordError) newErrors.password = passwordError;
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
   const handleLogin = async () => {
-    if (!email || !password) {
-      Alert.alert('Error', 'Please fill in all fields');
-      return;
-    }
+    if (!isLoaded) return;
+
+    // Clear previous errors
+    setErrors({});
+
+    // Validate form
+    if (!validateForm()) return;
 
     if (mounted.current) {
       setIsLoading(true);
     }
 
-    // Simulate login process
-    setTimeout(() => {
+    try {
+      const signInAttempt = await signIn.create({
+        identifier: email,
+        password,
+      });
+
+      if (signInAttempt.status === 'complete') {
+        await setActive({ session: signInAttempt.createdSessionId });
+        router.replace('/(tabs)/home');
+      } else {
+        // Handle other statuses if needed
+        console.log('Sign in incomplete:', signInAttempt.status);
+        setErrors({ general: 'Sign in incomplete. Please try again.' });
+      }
+    } catch (err: any) {
+      console.log('Sign in error:', err);
+      let errorMessage = 'Sign in failed. Please try again.';
+
+      if (err.errors && err.errors.length > 0) {
+        const clerkError = err.errors[0];
+        if (clerkError.code === 'form_identifier_not_found') {
+          errorMessage = 'No account found with this email address.';
+        } else if (clerkError.code === 'form_password_incorrect') {
+          errorMessage = 'Incorrect password. Please try again.';
+        } else if (clerkError.message) {
+          errorMessage = clerkError.message;
+        }
+      }
+
+      setErrors({ general: errorMessage });
+    } finally {
       if (mounted.current) {
         setIsLoading(false);
-        Alert.alert('Login Successful!', 'Welcome back to FitAI', [
-          {
-            text: 'Continue',
-            onPress: () => router.replace('/(tabs)/home'),
-          },
-        ]);
       }
-    }, 2000);
+    }
   };
 
-  const handleSocialLogin = (provider: string) => {
-    Alert.alert(`${provider} Login`, `Continue with ${provider}?`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Continue',
-        onPress: () => {
-          Alert.alert('Success', `Logged in with ${provider}!`, [
-            { text: 'OK', onPress: () => router.replace('/(tabs)/home') },
-          ]);
-        },
-      },
-    ]);
+  const handleSocialLogin = async (provider: 'google' | 'apple') => {
+    try {
+      setIsLoading(true);
+
+      const startOAuthFlow =
+        provider === 'google' ? startGoogleOAuthFlow : startAppleOAuthFlow;
+
+      const { createdSessionId, setActive } = await startOAuthFlow();
+
+      if (createdSessionId) {
+        setActive!({ session: createdSessionId });
+        router.replace('/(tabs)/home');
+      }
+    } catch (err: any) {
+      console.log('OAuth error:', err);
+      Alert.alert(
+        'Error',
+        `Failed to sign in with ${provider}. Please try again.`
+      );
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const SocialButton = ({ icon: Icon, title, onPress, colors }: any) => {
+  const SocialButton = ({
+    icon: Icon,
+    imgSrc,
+    title,
+    onPress,
+    colors,
+  }: any) => {
     const pressAnim = useSharedValue(0);
 
     const pressStyle = useAnimatedStyle(() => {
@@ -117,7 +200,14 @@ export default function LoginScreen() {
       <TouchableOpacity onPress={handlePress} activeOpacity={0.8}>
         <Animated.View style={[styles.socialButton, pressStyle]}>
           <LinearGradient colors={colors} style={styles.socialButtonGradient}>
-            <Icon color="white" size={20} />
+            {imgSrc ? (
+              <Image
+                source={imgSrc}
+                style={{ width: 20, height: 20, borderRadius: 10 }}
+              />
+            ) : (
+              <Icon color="white" size={20} />
+            )}
             <Text style={styles.socialButtonText}>{title}</Text>
           </LinearGradient>
         </Animated.View>
@@ -144,20 +234,123 @@ export default function LoginScreen() {
             </Text>
           </View>
 
-          {/* Social Login Buttons */}
-          <View style={styles.socialContainer}>
-            <SocialButton
-              icon={Apple}
-              title="Continue with Apple"
-              colors={['#000000', '#333333']}
-              onPress={() => handleSocialLogin('Apple')}
-            />
-            <SocialButton
-              icon={Chrome}
-              title="Continue with Google"
-              colors={['#4285F4', '#34A853']}
-              onPress={() => handleSocialLogin('Google')}
-            />
+          {/* Login Form */}
+          <View style={styles.formContainer}>
+            <KeyboardAvoidingView
+              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            >
+              {/* General Error */}
+              {errors.general && (
+                <View style={styles.errorContainer}>
+                  <Text style={styles.errorText}>{errors.general}</Text>
+                </View>
+              )}
+
+              <View style={styles.inputContainer}>
+                <View
+                  style={[
+                    styles.inputWrapper,
+                    errors.email && styles.inputWrapperError,
+                  ]}
+                >
+                  <Mail color="#9CA3AF" size={20} style={styles.inputIcon} />
+                  <TextInput
+                    style={styles.textInput}
+                    placeholder="Email address"
+                    placeholderTextColor="#9CA3AF"
+                    value={email}
+                    onChangeText={(text) => {
+                      setEmail(text);
+                      // Clear email error when user starts typing
+                      if (errors.email) {
+                        setErrors((prev) => ({ ...prev, email: undefined }));
+                      }
+                    }}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    editable={!isLoading}
+                  />
+                </View>
+                {errors.email && (
+                  <Text style={styles.fieldErrorText}>{errors.email}</Text>
+                )}
+              </View>
+
+              <View style={styles.inputContainer}>
+                <View
+                  style={[
+                    styles.inputWrapper,
+                    errors.password && styles.inputWrapperError,
+                  ]}
+                >
+                  <Lock color="#9CA3AF" size={20} style={styles.inputIcon} />
+                  <TextInput
+                    style={styles.textInput}
+                    placeholder="Password"
+                    placeholderTextColor="#9CA3AF"
+                    value={password}
+                    onChangeText={(text) => {
+                      setPassword(text);
+                      // Clear password error when user starts typing
+                      if (errors.password) {
+                        setErrors((prev) => ({ ...prev, password: undefined }));
+                      }
+                    }}
+                    secureTextEntry={!showPassword}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    editable={!isLoading}
+                  />
+                  <TouchableOpacity
+                    onPress={() => setShowPassword(!showPassword)}
+                    style={styles.eyeButton}
+                    disabled={isLoading}
+                  >
+                    {showPassword ? (
+                      <EyeOff color="#9CA3AF" size={20} />
+                    ) : (
+                      <Eye color="#9CA3AF" size={20} />
+                    )}
+                  </TouchableOpacity>
+                </View>
+                {errors.password && (
+                  <Text style={styles.fieldErrorText}>{errors.password}</Text>
+                )}
+              </View>
+
+              <TouchableOpacity
+                style={styles.forgotPassword}
+                onPress={() => router.push('/(auth)/forgot-password')}
+              >
+                <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.loginButton,
+                  isLoading && styles.loginButtonDisabled,
+                ]}
+                onPress={handleLogin}
+                disabled={isLoading}
+              >
+                <LinearGradient
+                  colors={
+                    isLoading ? ['#9CA3AF', '#6B7280'] : ['#3B82F6', '#1D4ED8']
+                  }
+                  style={styles.loginButtonGradient}
+                >
+                  {isLoading ? (
+                    <Text style={styles.loginButtonText}>Signing In...</Text>
+                  ) : (
+                    <>
+                      <Text style={styles.loginButtonText}>Sign In</Text>
+                      <ArrowRight color="white" size={20} />
+                    </>
+                  )}
+                </LinearGradient>
+              </TouchableOpacity>
+            </KeyboardAvoidingView>
           </View>
 
           {/* Divider */}
@@ -166,82 +359,20 @@ export default function LoginScreen() {
             <Text style={styles.dividerText}>or</Text>
             <View style={styles.dividerLine} />
           </View>
-
-          {/* Login Form */}
-          <View style={styles.formContainer}>
-            <View style={styles.inputContainer}>
-              <View style={styles.inputWrapper}>
-                <Mail color="#9CA3AF" size={20} style={styles.inputIcon} />
-                <TextInput
-                  style={styles.textInput}
-                  placeholder="Email address"
-                  placeholderTextColor="#9CA3AF"
-                  value={email}
-                  onChangeText={setEmail}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                />
-              </View>
-            </View>
-
-            <View style={styles.inputContainer}>
-              <View style={styles.inputWrapper}>
-                <Lock color="#9CA3AF" size={20} style={styles.inputIcon} />
-                <TextInput
-                  style={styles.textInput}
-                  placeholder="Password"
-                  placeholderTextColor="#9CA3AF"
-                  value={password}
-                  onChangeText={setPassword}
-                  secureTextEntry={!showPassword}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                />
-                <TouchableOpacity
-                  onPress={() => setShowPassword(!showPassword)}
-                  style={styles.eyeButton}
-                >
-                  {showPassword ? (
-                    <EyeOff color="#9CA3AF" size={20} />
-                  ) : (
-                    <Eye color="#9CA3AF" size={20} />
-                  )}
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            <TouchableOpacity
-              style={styles.forgotPassword}
-              onPress={() => router.push('/(auth)/forgot-password')}
-            >
-              <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[
-                styles.loginButton,
-                isLoading && styles.loginButtonDisabled,
-              ]}
-              onPress={handleLogin}
-              disabled={isLoading}
-            >
-              <LinearGradient
-                colors={
-                  isLoading ? ['#9CA3AF', '#6B7280'] : ['#3B82F6', '#1D4ED8']
-                }
-                style={styles.loginButtonGradient}
-              >
-                {isLoading ? (
-                  <Text style={styles.loginButtonText}>Signing In...</Text>
-                ) : (
-                  <>
-                    <Text style={styles.loginButtonText}>Sign In</Text>
-                    <ArrowRight color="white" size={20} />
-                  </>
-                )}
-              </LinearGradient>
-            </TouchableOpacity>
+          {/* Social Login Buttons */}
+          <View style={styles.socialContainer}>
+            <SocialButton
+              icon={Apple}
+              title="Continue with Apple"
+              colors={['#000000', '#333333']}
+              onPress={() => handleSocialLogin('apple')}
+            />
+            <SocialButton
+              imgSrc={require('../../assets/images/google-icon-logo.png')}
+              title="Continue with Google"
+              colors={['#000000', '#333333']}
+              onPress={() => handleSocialLogin('google')}
+            />
           </View>
 
           {/* Sign Up Link */}
@@ -421,5 +552,28 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#3B82F6',
     fontWeight: '600',
+  },
+  errorContainer: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FECACA',
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
+  },
+  errorText: {
+    fontSize: 14,
+    color: '#DC2626',
+    textAlign: 'center',
+  },
+  fieldErrorText: {
+    fontSize: 12,
+    color: '#DC2626',
+    marginTop: 4,
+    marginLeft: 4,
+  },
+  inputWrapperError: {
+    borderColor: '#DC2626',
+    borderWidth: 2,
   },
 });

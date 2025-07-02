@@ -30,6 +30,7 @@ import {
   Chrome,
   ArrowLeft,
 } from 'lucide-react-native';
+import { useSignUp, useOAuth } from '@clerk/clerk-expo';
 
 const { width, height } = Dimensions.get('window');
 
@@ -41,7 +42,22 @@ export default function SignupScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [errors, setErrors] = useState<{
+    name?: string;
+    email?: string;
+    password?: string;
+    confirmPassword?: string;
+    general?: string;
+  }>({});
   const mounted = useRef(false);
+
+  const { signUp, setActive, isLoaded } = useSignUp();
+  const { startOAuthFlow: startGoogleOAuthFlow } = useOAuth({
+    strategy: 'oauth_google',
+  });
+  const { startOAuthFlow: startAppleOAuthFlow } = useOAuth({
+    strategy: 'oauth_apple',
+  });
 
   const fadeAnim = useSharedValue(0);
   const slideAnim = useSharedValue(50);
@@ -63,56 +79,147 @@ export default function SignupScreen() {
     transform: [{ translateY: slideAnim.value }, { scale: scaleAnim.value }],
   }));
 
+  // Validation functions
+  const validateName = (name: string): string | undefined => {
+    if (!name) return 'Full name is required';
+    if (name.trim().length < 2)
+      return 'Name must be at least 2 characters long';
+    return undefined;
+  };
+
+  const validateEmail = (email: string): string | undefined => {
+    if (!email) return 'Email is required';
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) return 'Please enter a valid email address';
+    return undefined;
+  };
+
+  const validatePassword = (password: string): string | undefined => {
+    if (!password) return 'Password is required';
+    if (password.length < 8)
+      return 'Password must be at least 8 characters long';
+    if (!/(?=.*[a-z])/.test(password))
+      return 'Password must contain at least one lowercase letter';
+    if (!/(?=.*[A-Z])/.test(password))
+      return 'Password must contain at least one uppercase letter';
+    if (!/(?=.*\d)/.test(password))
+      return 'Password must contain at least one number';
+    return undefined;
+  };
+
+  const validateConfirmPassword = (
+    confirmPassword: string,
+    password: string
+  ): string | undefined => {
+    if (!confirmPassword) return 'Please confirm your password';
+    if (confirmPassword !== password) return 'Passwords do not match';
+    return undefined;
+  };
+
+  const validateForm = (): boolean => {
+    const newErrors: {
+      name?: string;
+      email?: string;
+      password?: string;
+      confirmPassword?: string;
+    } = {};
+
+    const nameError = validateName(name);
+    const emailError = validateEmail(email);
+    const passwordError = validatePassword(password);
+    const confirmPasswordError = validateConfirmPassword(
+      confirmPassword,
+      password
+    );
+
+    if (nameError) newErrors.name = nameError;
+    if (emailError) newErrors.email = emailError;
+    if (passwordError) newErrors.password = passwordError;
+    if (confirmPasswordError) newErrors.confirmPassword = confirmPasswordError;
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
   const handleSignup = async () => {
-    if (!name || !email || !password || !confirmPassword) {
-      Alert.alert('Error', 'Please fill in all fields');
-      return;
-    }
+    if (!isLoaded) return;
 
-    if (password !== confirmPassword) {
-      Alert.alert('Error', 'Passwords do not match');
-      return;
-    }
+    // Clear previous errors
+    setErrors({});
 
-    if (password.length < 6) {
-      Alert.alert('Error', 'Password must be at least 6 characters');
-      return;
-    }
+    // Validate form
+    if (!validateForm()) return;
 
     if (mounted.current) {
       setIsLoading(true);
     }
 
-    // Simulate signup process
-    setTimeout(() => {
-      if (mounted.current) {
-        setIsLoading(false);
+    try {
+      const signUpAttempt = await signUp.create({
+        emailAddress: email,
+        password,
+        firstName: name.split(' ')[0],
+        lastName: name.split(' ').slice(1).join(' ') || '',
+      });
+
+      // For development, we'll assume email verification is not required
+      // In production, you might want to handle email verification
+      if (signUpAttempt.status === 'complete') {
+        await setActive({ session: signUpAttempt.createdSessionId });
+        router.replace('/(tabs)/home');
+      } else {
+        // Handle incomplete signup (usually means email verification required)
+        console.log('Signup incomplete:', signUpAttempt.status);
         Alert.alert(
-          'Account Created!',
-          'Welcome to FitAI! Your fitness journey starts now.',
-          [
-            {
-              text: 'Get Started',
-              onPress: () => router.replace('/(tabs)/home'),
-            },
-          ]
+          'Verify Email',
+          'Please check your email and verify your account to continue.',
+          [{ text: 'OK' }]
         );
       }
-    }, 2000);
+    } catch (err: any) {
+      console.log('Signup error:', err);
+      let errorMessage = 'Account creation failed. Please try again.';
+
+      if (err.errors && err.errors.length > 0) {
+        const clerkError = err.errors[0];
+        if (clerkError.code === 'form_identifier_exists') {
+          errorMessage =
+            'An account with this email already exists. Please sign in instead.';
+        } else if (clerkError.message) {
+          errorMessage = clerkError.message;
+        }
+      }
+
+      setErrors({ general: errorMessage });
+    } finally {
+      if (mounted.current) {
+        setIsLoading(false);
+      }
+    }
   };
 
-  const handleSocialSignup = (provider: string) => {
-    Alert.alert(`${provider} Sign Up`, `Create account with ${provider}?`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Continue',
-        onPress: () => {
-          Alert.alert('Success', `Account created with ${provider}!`, [
-            { text: 'OK', onPress: () => router.replace('/(tabs)/home') },
-          ]);
-        },
-      },
-    ]);
+  const handleSocialSignup = async (provider: 'google' | 'apple') => {
+    try {
+      setIsLoading(true);
+
+      const startOAuthFlow =
+        provider === 'google' ? startGoogleOAuthFlow : startAppleOAuthFlow;
+
+      const { createdSessionId, setActive } = await startOAuthFlow();
+
+      if (createdSessionId) {
+        setActive!({ session: createdSessionId });
+        router.replace('/(tabs)/home');
+      }
+    } catch (err: any) {
+      console.log('OAuth signup error:', err);
+      Alert.alert(
+        'Error',
+        `Failed to create account with ${provider}. Please try again.`
+      );
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const SocialButton = ({ icon: Icon, title, onPress, colors }: any) => {
@@ -177,13 +284,13 @@ export default function SignupScreen() {
               icon={Apple}
               title="Sign up with Apple"
               colors={['#000000', '#333333']}
-              onPress={() => handleSocialSignup('Apple')}
+              onPress={() => handleSocialSignup('apple')}
             />
             <SocialButton
               icon={Chrome}
               title="Sign up with Google"
               colors={['#4285F4', '#34A853']}
-              onPress={() => handleSocialSignup('Google')}
+              onPress={() => handleSocialSignup('google')}
             />
           </View>
 
@@ -196,53 +303,100 @@ export default function SignupScreen() {
 
           {/* Signup Form */}
           <View style={styles.formContainer}>
+            {/* General Error */}
+            {errors.general && (
+              <View style={styles.errorContainer}>
+                <Text style={styles.errorText}>{errors.general}</Text>
+              </View>
+            )}
+
             <View style={styles.inputContainer}>
-              <View style={styles.inputWrapper}>
+              <View
+                style={[
+                  styles.inputWrapper,
+                  errors.name && styles.inputWrapperError,
+                ]}
+              >
                 <User color="#9CA3AF" size={20} style={styles.inputIcon} />
                 <TextInput
                   style={styles.textInput}
                   placeholder="Full name"
                   placeholderTextColor="#9CA3AF"
                   value={name}
-                  onChangeText={setName}
+                  onChangeText={(text) => {
+                    setName(text);
+                    if (errors.name) {
+                      setErrors((prev) => ({ ...prev, name: undefined }));
+                    }
+                  }}
                   autoCapitalize="words"
                   autoCorrect={false}
+                  editable={!isLoading}
                 />
               </View>
+              {errors.name && (
+                <Text style={styles.fieldErrorText}>{errors.name}</Text>
+              )}
             </View>
 
             <View style={styles.inputContainer}>
-              <View style={styles.inputWrapper}>
+              <View
+                style={[
+                  styles.inputWrapper,
+                  errors.email && styles.inputWrapperError,
+                ]}
+              >
                 <Mail color="#9CA3AF" size={20} style={styles.inputIcon} />
                 <TextInput
                   style={styles.textInput}
                   placeholder="Email address"
                   placeholderTextColor="#9CA3AF"
                   value={email}
-                  onChangeText={setEmail}
+                  onChangeText={(text) => {
+                    setEmail(text);
+                    if (errors.email) {
+                      setErrors((prev) => ({ ...prev, email: undefined }));
+                    }
+                  }}
                   keyboardType="email-address"
                   autoCapitalize="none"
                   autoCorrect={false}
+                  editable={!isLoading}
                 />
               </View>
+              {errors.email && (
+                <Text style={styles.fieldErrorText}>{errors.email}</Text>
+              )}
             </View>
 
             <View style={styles.inputContainer}>
-              <View style={styles.inputWrapper}>
+              <View
+                style={[
+                  styles.inputWrapper,
+                  errors.password && styles.inputWrapperError,
+                ]}
+              >
                 <Lock color="#9CA3AF" size={20} style={styles.inputIcon} />
                 <TextInput
                   style={styles.textInput}
                   placeholder="Password"
                   placeholderTextColor="#9CA3AF"
                   value={password}
-                  onChangeText={setPassword}
+                  onChangeText={(text) => {
+                    setPassword(text);
+                    if (errors.password) {
+                      setErrors((prev) => ({ ...prev, password: undefined }));
+                    }
+                  }}
                   secureTextEntry={!showPassword}
                   autoCapitalize="none"
                   autoCorrect={false}
+                  editable={!isLoading}
                 />
                 <TouchableOpacity
                   onPress={() => setShowPassword(!showPassword)}
                   style={styles.eyeButton}
+                  disabled={isLoading}
                 >
                   {showPassword ? (
                     <EyeOff color="#9CA3AF" size={20} />
@@ -251,24 +405,42 @@ export default function SignupScreen() {
                   )}
                 </TouchableOpacity>
               </View>
+              {errors.password && (
+                <Text style={styles.fieldErrorText}>{errors.password}</Text>
+              )}
             </View>
 
             <View style={styles.inputContainer}>
-              <View style={styles.inputWrapper}>
+              <View
+                style={[
+                  styles.inputWrapper,
+                  errors.confirmPassword && styles.inputWrapperError,
+                ]}
+              >
                 <Lock color="#9CA3AF" size={20} style={styles.inputIcon} />
                 <TextInput
                   style={styles.textInput}
                   placeholder="Confirm password"
                   placeholderTextColor="#9CA3AF"
                   value={confirmPassword}
-                  onChangeText={setConfirmPassword}
+                  onChangeText={(text) => {
+                    setConfirmPassword(text);
+                    if (errors.confirmPassword) {
+                      setErrors((prev) => ({
+                        ...prev,
+                        confirmPassword: undefined,
+                      }));
+                    }
+                  }}
                   secureTextEntry={!showConfirmPassword}
                   autoCapitalize="none"
                   autoCorrect={false}
+                  editable={!isLoading}
                 />
                 <TouchableOpacity
                   onPress={() => setShowConfirmPassword(!showConfirmPassword)}
                   style={styles.eyeButton}
+                  disabled={isLoading}
                 >
                   {showConfirmPassword ? (
                     <EyeOff color="#9CA3AF" size={20} />
@@ -277,6 +449,11 @@ export default function SignupScreen() {
                   )}
                 </TouchableOpacity>
               </View>
+              {errors.confirmPassword && (
+                <Text style={styles.fieldErrorText}>
+                  {errors.confirmPassword}
+                </Text>
+              )}
             </View>
 
             <TouchableOpacity
@@ -508,5 +685,28 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#3B82F6',
     fontWeight: '600',
+  },
+  errorContainer: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FECACA',
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
+  },
+  errorText: {
+    fontSize: 14,
+    color: '#DC2626',
+    textAlign: 'center',
+  },
+  fieldErrorText: {
+    fontSize: 12,
+    color: '#DC2626',
+    marginTop: 4,
+    marginLeft: 4,
+  },
+  inputWrapperError: {
+    borderColor: '#DC2626',
+    borderWidth: 2,
   },
 });

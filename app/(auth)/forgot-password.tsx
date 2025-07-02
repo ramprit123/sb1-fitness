@@ -22,12 +22,16 @@ import {
   ArrowLeft,
   CircleCheck as CheckCircle,
 } from 'lucide-react-native';
+import { useSignIn } from '@clerk/clerk-expo';
 
 export default function ForgotPasswordScreen() {
   const [email, setEmail] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
+  const [error, setError] = useState('');
   const mounted = useRef(false);
+
+  const { signIn, isLoaded } = useSignIn();
 
   const fadeAnim = useSharedValue(0);
   const slideAnim = useSharedValue(50);
@@ -50,8 +54,20 @@ export default function ForgotPasswordScreen() {
   }));
 
   const handleResetPassword = async () => {
+    if (!isLoaded) return;
+
+    // Clear previous error
+    setError('');
+
+    // Validate email
     if (!email) {
-      Alert.alert('Error', 'Please enter your email address');
+      setError('Please enter your email address');
+      return;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      setError('Please enter a valid email address');
       return;
     }
 
@@ -59,13 +75,34 @@ export default function ForgotPasswordScreen() {
       setIsLoading(true);
     }
 
-    // Simulate password reset process
-    setTimeout(() => {
+    try {
+      await signIn.create({
+        strategy: 'reset_password_email_code',
+        identifier: email,
+      });
+
       if (mounted.current) {
-        setIsLoading(false);
         setEmailSent(true);
       }
-    }, 2000);
+    } catch (err: any) {
+      console.log('Password reset error:', err);
+      let errorMessage = 'Failed to send reset email. Please try again.';
+
+      if (err.errors && err.errors.length > 0) {
+        const clerkError = err.errors[0];
+        if (clerkError.code === 'form_identifier_not_found') {
+          errorMessage = 'No account found with this email address.';
+        } else if (clerkError.message) {
+          errorMessage = clerkError.message;
+        }
+      }
+
+      setError(errorMessage);
+    } finally {
+      if (mounted.current) {
+        setIsLoading(false);
+      }
+    }
   };
 
   if (emailSent) {
@@ -140,18 +177,32 @@ export default function ForgotPasswordScreen() {
         </View>
 
         <View style={styles.formContainer}>
+          {/* Error Display */}
+          {error && (
+            <View style={styles.errorContainer}>
+              <Text style={styles.errorText}>{error}</Text>
+            </View>
+          )}
+
           <View style={styles.inputContainer}>
-            <View style={styles.inputWrapper}>
+            <View
+              style={[styles.inputWrapper, error && styles.inputWrapperError]}
+            >
               <Mail color="#9CA3AF" size={20} style={styles.inputIcon} />
               <TextInput
                 style={styles.textInput}
                 placeholder="Email address"
                 placeholderTextColor="#9CA3AF"
                 value={email}
-                onChangeText={setEmail}
+                onChangeText={(text) => {
+                  setEmail(text);
+                  // Clear error when user starts typing
+                  if (error) setError('');
+                }}
                 keyboardType="email-address"
                 autoCapitalize="none"
                 autoCorrect={false}
+                editable={!isLoading}
               />
             </View>
           </View>
@@ -379,5 +430,22 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: 'white',
+  },
+  errorContainer: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FECACA',
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
+  },
+  errorText: {
+    fontSize: 14,
+    color: '#DC2626',
+    textAlign: 'center',
+  },
+  inputWrapperError: {
+    borderColor: '#DC2626',
+    borderWidth: 2,
   },
 });
