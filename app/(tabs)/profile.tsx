@@ -1,9 +1,35 @@
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  Image,
+  ActivityIndicator,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Settings, Bell, Shield, CircleHelp as HelpCircle, Star, ChevronRight, CreditCard as Edit, Award, Target } from 'lucide-react-native';
+import {
+  Settings,
+  Bell,
+  Shield,
+  CircleHelp as HelpCircle,
+  Star,
+  ChevronRight,
+  CreditCard as Edit,
+  Award,
+  Target,
+  Calendar,
+  Mail,
+  User as UserIcon,
+} from 'lucide-react-native';
+import { useAuth, useUser } from '@clerk/clerk-expo';
+import { useRouter } from 'expo-router';
 
 export default function ProfileScreen() {
+  const router = useRouter();
+  const { signOut } = useAuth();
+  const { user } = useUser();
   const MenuButton = ({ icon: Icon, title, subtitle, onPress }: any) => (
     <TouchableOpacity style={styles.menuButton} onPress={onPress}>
       <View style={styles.menuIcon}>
@@ -27,22 +53,66 @@ export default function ProfileScreen() {
     </View>
   );
 
+  const handleSignOut = () => {
+    signOut();
+    router.push('/(auth)');
+  };
+
+  const formatDate = (dateString: string | Date | null | undefined) => {
+    if (!dateString) return 'Not available';
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    });
+  };
+
+  if (!user) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#3B82F6" />
+          <Text style={styles.loadingText}>Loading profile...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView style={styles.scrollView}>
         {/* Profile Header */}
         <View style={styles.profileHeader}>
           <View style={styles.profileImageContainer}>
-            <Image
-              source={{ uri: 'https://images.pexels.com/photos/220453/pexels-photo-220453.jpeg?auto=compress&cs=tinysrgb&w=200&h=200&dpr=2' }}
-              style={styles.profileImage}
-            />
+            {user?.imageUrl ? (
+              <Image
+                source={{ uri: user.imageUrl }}
+                style={styles.profileImage}
+              />
+            ) : (
+              <View style={styles.profileImagePlaceholder}>
+                <UserIcon color="#6B7280" size={40} />
+              </View>
+            )}
             <TouchableOpacity style={styles.editButton}>
               <Edit color="white" size={16} />
             </TouchableOpacity>
           </View>
-          <Text style={styles.profileName}>Alex Johnson</Text>
-          <Text style={styles.profileEmail}>alex.johnson@email.com</Text>
+          <Text style={styles.profileName}>
+            {user?.fullName ||
+              `${user?.firstName || ''} ${user?.lastName || ''}`.trim() ||
+              'User'}
+          </Text>
+          <Text style={styles.profileEmail}>
+            {user?.primaryEmailAddress?.emailAddress || 'No email available'}
+          </Text>
+          {user?.primaryEmailAddress?.verification?.status === 'verified' && (
+            <View style={styles.verificationBadge}>
+              <Shield color="#10B981" size={14} />
+              <Text style={styles.verificationText}>Verified</Text>
+            </View>
+          )}
         </View>
 
         {/* Stats */}
@@ -53,12 +123,7 @@ export default function ProfileScreen() {
             icon={Award}
             color="#F59E0B"
           />
-          <StatsCard
-            title="Level"
-            value="Pro"
-            icon={Star}
-            color="#8B5CF6"
-          />
+          <StatsCard title="Level" value="Pro" icon={Star} color="#8B5CF6" />
           <StatsCard
             title="Goals"
             value="12/15"
@@ -67,13 +132,83 @@ export default function ProfileScreen() {
           />
         </View>
 
+        {/* User Info Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Account Information</Text>
+          <View style={styles.menuGroup}>
+            <View style={styles.infoItem}>
+              <View style={styles.menuIcon}>
+                <UserIcon color="#6B7280" size={20} />
+              </View>
+              <View style={styles.menuContent}>
+                <Text style={styles.menuTitle}>Full Name</Text>
+                <Text style={styles.menuSubtitle}>
+                  {user?.fullName ||
+                    `${user?.firstName || ''} ${user?.lastName || ''}`.trim() ||
+                    'Not provided'}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.infoItem}>
+              <View style={styles.menuIcon}>
+                <Mail color="#6B7280" size={20} />
+              </View>
+              <View style={styles.menuContent}>
+                <Text style={styles.menuTitle}>Email</Text>
+                <Text style={styles.menuSubtitle}>
+                  {user?.primaryEmailAddress?.emailAddress ||
+                    'No email available'}
+                </Text>
+                {user?.primaryEmailAddress?.verification?.status && (
+                  <View style={styles.emailStatus}>
+                    <Text
+                      style={[
+                        styles.emailStatusText,
+                        user?.primaryEmailAddress?.verification?.status ===
+                        'verified'
+                          ? styles.emailStatusVerified
+                          : styles.emailStatusUnverified,
+                      ]}
+                    >
+                      {user?.primaryEmailAddress?.verification?.status ===
+                      'verified'
+                        ? '✓ Verified'
+                        : '⚠ Unverified'}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            </View>
+            <View style={styles.infoItem}>
+              <View style={styles.menuIcon}>
+                <Calendar color="#6B7280" size={20} />
+              </View>
+              <View style={styles.menuContent}>
+                <Text style={styles.menuTitle}>Member Since</Text>
+                <Text style={styles.menuSubtitle}>
+                  {formatDate(user?.createdAt)}
+                </Text>
+              </View>
+            </View>
+          </View>
+        </View>
+
         {/* Menu Sections */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Preferences</Text>
           <View style={styles.menuGroup}>
             <MenuButton
+              icon={UserIcon}
+              title="Account Settings"
+              subtitle="Manage your account information"
+              onPress={() => {
+                // TODO: Navigate to account settings
+                console.log('Navigate to account settings');
+              }}
+            />
+            <MenuButton
               icon={Settings}
-              title="Settings"
+              title="App Settings"
               subtitle="App preferences and configuration"
             />
             <MenuButton
@@ -106,7 +241,7 @@ export default function ProfileScreen() {
         </View>
 
         {/* Sign Out */}
-        <TouchableOpacity style={styles.signOutButton}>
+        <TouchableOpacity style={styles.signOutButton} onPress={handleSignOut}>
           <Text style={styles.signOutText}>Sign Out</Text>
         </TouchableOpacity>
       </ScrollView>
@@ -137,6 +272,14 @@ const styles = StyleSheet.create({
     height: 100,
     borderRadius: 50,
   },
+  profileImagePlaceholder: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   editButton: {
     position: 'absolute',
     bottom: 0,
@@ -159,6 +302,21 @@ const styles = StyleSheet.create({
   profileEmail: {
     fontSize: 16,
     color: '#6B7280',
+    marginBottom: 8,
+  },
+  verificationBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#D1FAE5',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    gap: 4,
+  },
+  verificationText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#10B981',
   },
   statsContainer: {
     flexDirection: 'row',
@@ -261,5 +419,36 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#DC2626',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 16,
+  },
+  loadingText: {
+    fontSize: 16,
+    color: '#6B7280',
+  },
+  infoItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  emailStatus: {
+    marginTop: 4,
+  },
+  emailStatusText: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  emailStatusVerified: {
+    color: '#10B981',
+  },
+  emailStatusUnverified: {
+    color: '#F59E0B',
   },
 });

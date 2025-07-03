@@ -648,6 +648,7 @@ const styles = StyleSheet.create({
     color: '#3B82F6',
   },
   actionsContainer: {
+    flex: 1,
     paddingHorizontal: 20,
     marginBottom: 32,
     gap: 12,

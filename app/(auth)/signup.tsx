@@ -8,6 +8,8 @@ import {
   ScrollView,
   Alert,
   Dimensions,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -158,23 +160,37 @@ export default function SignupScreen() {
       const signUpAttempt = await signUp.create({
         emailAddress: email,
         password,
-        firstName: name.split(' ')[0],
-        lastName: name.split(' ').slice(1).join(' ') || '',
       });
 
-      // For development, we'll assume email verification is not required
-      // In production, you might want to handle email verification
       if (signUpAttempt.status === 'complete') {
+        // Account created and verified, sign in
         await setActive({ session: signUpAttempt.createdSessionId });
         router.replace('/(tabs)/home');
+      } else if (signUpAttempt.status === 'missing_requirements') {
+        // Check if email verification is required
+        if (signUpAttempt.unverifiedFields.includes('email_address')) {
+          // Prepare email verification
+          await signUp.prepareEmailAddressVerification({
+            strategy: 'email_code',
+          });
+
+          // Navigate to verification screen with email
+          router.push({
+            pathname: '/(auth)/verify-email',
+            params: { email: email },
+          });
+        } else {
+          setErrors({
+            general:
+              'Additional verification required. Please check your email.',
+          });
+        }
       } else {
-        // Handle incomplete signup (usually means email verification required)
+        // Handle other incomplete states
         console.log('Signup incomplete:', signUpAttempt.status);
-        Alert.alert(
-          'Verify Email',
-          'Please check your email and verify your account to continue.',
-          [{ text: 'OK' }]
-        );
+        setErrors({
+          general: 'Account creation incomplete. Please try again.',
+        });
       }
     } catch (err: any) {
       console.log('Signup error:', err);
@@ -278,6 +294,200 @@ export default function SignupScreen() {
             </Text>
           </View>
 
+          {/* Signup Form */}
+          <View style={styles.formContainer}>
+            {/* General Error */}
+            <KeyboardAvoidingView
+              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            >
+              {errors.general && (
+                <View style={styles.errorContainer}>
+                  <Text style={styles.errorText}>{errors.general}</Text>
+                </View>
+              )}
+
+              <View style={styles.inputContainer}>
+                <View
+                  style={[
+                    styles.inputWrapper,
+                    errors.name && styles.inputWrapperError,
+                  ]}
+                >
+                  <User color="#9CA3AF" size={20} style={styles.inputIcon} />
+                  <TextInput
+                    style={styles.textInput}
+                    placeholder="Full name"
+                    placeholderTextColor="#9CA3AF"
+                    value={name}
+                    onChangeText={(text) => {
+                      setName(text);
+                      if (errors.name) {
+                        setErrors((prev) => ({ ...prev, name: undefined }));
+                      }
+                    }}
+                    autoCapitalize="words"
+                    autoCorrect={false}
+                    editable={!isLoading}
+                  />
+                </View>
+                {errors.name && (
+                  <Text style={styles.fieldErrorText}>{errors.name}</Text>
+                )}
+              </View>
+
+              <View style={styles.inputContainer}>
+                <View
+                  style={[
+                    styles.inputWrapper,
+                    errors.email && styles.inputWrapperError,
+                  ]}
+                >
+                  <Mail color="#9CA3AF" size={20} style={styles.inputIcon} />
+                  <TextInput
+                    style={styles.textInput}
+                    placeholder="Email address"
+                    placeholderTextColor="#9CA3AF"
+                    value={email}
+                    onChangeText={(text) => {
+                      setEmail(text);
+                      if (errors.email) {
+                        setErrors((prev) => ({ ...prev, email: undefined }));
+                      }
+                    }}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    editable={!isLoading}
+                  />
+                </View>
+                {errors.email && (
+                  <Text style={styles.fieldErrorText}>{errors.email}</Text>
+                )}
+              </View>
+
+              <View style={styles.inputContainer}>
+                <View
+                  style={[
+                    styles.inputWrapper,
+                    errors.password && styles.inputWrapperError,
+                  ]}
+                >
+                  <Lock color="#9CA3AF" size={20} style={styles.inputIcon} />
+                  <TextInput
+                    style={styles.textInput}
+                    placeholder="Password"
+                    placeholderTextColor="#9CA3AF"
+                    value={password}
+                    onChangeText={(text) => {
+                      setPassword(text);
+                      if (errors.password) {
+                        setErrors((prev) => ({ ...prev, password: undefined }));
+                      }
+                    }}
+                    secureTextEntry={!showPassword}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    editable={!isLoading}
+                  />
+                  <TouchableOpacity
+                    onPress={() => setShowPassword(!showPassword)}
+                    style={styles.eyeButton}
+                    disabled={isLoading}
+                  >
+                    {showPassword ? (
+                      <EyeOff color="#9CA3AF" size={20} />
+                    ) : (
+                      <Eye color="#9CA3AF" size={20} />
+                    )}
+                  </TouchableOpacity>
+                </View>
+                {errors.password && (
+                  <Text style={styles.fieldErrorText}>{errors.password}</Text>
+                )}
+              </View>
+
+              <View style={styles.inputContainer}>
+                <View
+                  style={[
+                    styles.inputWrapper,
+                    errors.confirmPassword && styles.inputWrapperError,
+                  ]}
+                >
+                  <Lock color="#9CA3AF" size={20} style={styles.inputIcon} />
+                  <TextInput
+                    style={styles.textInput}
+                    placeholder="Confirm password"
+                    placeholderTextColor="#9CA3AF"
+                    value={confirmPassword}
+                    onChangeText={(text) => {
+                      setConfirmPassword(text);
+                      if (errors.confirmPassword) {
+                        setErrors((prev) => ({
+                          ...prev,
+                          confirmPassword: undefined,
+                        }));
+                      }
+                    }}
+                    secureTextEntry={!showConfirmPassword}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    editable={!isLoading}
+                  />
+                  <TouchableOpacity
+                    onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                    style={styles.eyeButton}
+                    disabled={isLoading}
+                  >
+                    {showConfirmPassword ? (
+                      <EyeOff color="#9CA3AF" size={20} />
+                    ) : (
+                      <Eye color="#9CA3AF" size={20} />
+                    )}
+                  </TouchableOpacity>
+                </View>
+                {errors.confirmPassword && (
+                  <Text style={styles.fieldErrorText}>
+                    {errors.confirmPassword}
+                  </Text>
+                )}
+              </View>
+
+              <TouchableOpacity
+                style={[
+                  styles.signupButton,
+                  isLoading && styles.signupButtonDisabled,
+                ]}
+                onPress={handleSignup}
+                disabled={isLoading}
+              >
+                <LinearGradient
+                  colors={
+                    isLoading ? ['#9CA3AF', '#6B7280'] : ['#3B82F6', '#1D4ED8']
+                  }
+                  style={styles.signupButtonGradient}
+                >
+                  {isLoading ? (
+                    <Text style={styles.signupButtonText}>
+                      Creating Account...
+                    </Text>
+                  ) : (
+                    <>
+                      <Text style={styles.signupButtonText}>
+                        Create Account
+                      </Text>
+                      <ArrowRight color="white" size={20} />
+                    </>
+                  )}
+                </LinearGradient>
+              </TouchableOpacity>
+            </KeyboardAvoidingView>
+          </View>
+          {/* Divider */}
+          <View style={styles.dividerContainer}>
+            <View style={styles.dividerLine} />
+            <Text style={styles.dividerText}>or</Text>
+            <View style={styles.dividerLine} />
+          </View>
           {/* Social Signup Buttons */}
           <View style={styles.socialContainer}>
             <SocialButton
@@ -293,197 +503,6 @@ export default function SignupScreen() {
               onPress={() => handleSocialSignup('google')}
             />
           </View>
-
-          {/* Divider */}
-          <View style={styles.dividerContainer}>
-            <View style={styles.dividerLine} />
-            <Text style={styles.dividerText}>or</Text>
-            <View style={styles.dividerLine} />
-          </View>
-
-          {/* Signup Form */}
-          <View style={styles.formContainer}>
-            {/* General Error */}
-            {errors.general && (
-              <View style={styles.errorContainer}>
-                <Text style={styles.errorText}>{errors.general}</Text>
-              </View>
-            )}
-
-            <View style={styles.inputContainer}>
-              <View
-                style={[
-                  styles.inputWrapper,
-                  errors.name && styles.inputWrapperError,
-                ]}
-              >
-                <User color="#9CA3AF" size={20} style={styles.inputIcon} />
-                <TextInput
-                  style={styles.textInput}
-                  placeholder="Full name"
-                  placeholderTextColor="#9CA3AF"
-                  value={name}
-                  onChangeText={(text) => {
-                    setName(text);
-                    if (errors.name) {
-                      setErrors((prev) => ({ ...prev, name: undefined }));
-                    }
-                  }}
-                  autoCapitalize="words"
-                  autoCorrect={false}
-                  editable={!isLoading}
-                />
-              </View>
-              {errors.name && (
-                <Text style={styles.fieldErrorText}>{errors.name}</Text>
-              )}
-            </View>
-
-            <View style={styles.inputContainer}>
-              <View
-                style={[
-                  styles.inputWrapper,
-                  errors.email && styles.inputWrapperError,
-                ]}
-              >
-                <Mail color="#9CA3AF" size={20} style={styles.inputIcon} />
-                <TextInput
-                  style={styles.textInput}
-                  placeholder="Email address"
-                  placeholderTextColor="#9CA3AF"
-                  value={email}
-                  onChangeText={(text) => {
-                    setEmail(text);
-                    if (errors.email) {
-                      setErrors((prev) => ({ ...prev, email: undefined }));
-                    }
-                  }}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  editable={!isLoading}
-                />
-              </View>
-              {errors.email && (
-                <Text style={styles.fieldErrorText}>{errors.email}</Text>
-              )}
-            </View>
-
-            <View style={styles.inputContainer}>
-              <View
-                style={[
-                  styles.inputWrapper,
-                  errors.password && styles.inputWrapperError,
-                ]}
-              >
-                <Lock color="#9CA3AF" size={20} style={styles.inputIcon} />
-                <TextInput
-                  style={styles.textInput}
-                  placeholder="Password"
-                  placeholderTextColor="#9CA3AF"
-                  value={password}
-                  onChangeText={(text) => {
-                    setPassword(text);
-                    if (errors.password) {
-                      setErrors((prev) => ({ ...prev, password: undefined }));
-                    }
-                  }}
-                  secureTextEntry={!showPassword}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  editable={!isLoading}
-                />
-                <TouchableOpacity
-                  onPress={() => setShowPassword(!showPassword)}
-                  style={styles.eyeButton}
-                  disabled={isLoading}
-                >
-                  {showPassword ? (
-                    <EyeOff color="#9CA3AF" size={20} />
-                  ) : (
-                    <Eye color="#9CA3AF" size={20} />
-                  )}
-                </TouchableOpacity>
-              </View>
-              {errors.password && (
-                <Text style={styles.fieldErrorText}>{errors.password}</Text>
-              )}
-            </View>
-
-            <View style={styles.inputContainer}>
-              <View
-                style={[
-                  styles.inputWrapper,
-                  errors.confirmPassword && styles.inputWrapperError,
-                ]}
-              >
-                <Lock color="#9CA3AF" size={20} style={styles.inputIcon} />
-                <TextInput
-                  style={styles.textInput}
-                  placeholder="Confirm password"
-                  placeholderTextColor="#9CA3AF"
-                  value={confirmPassword}
-                  onChangeText={(text) => {
-                    setConfirmPassword(text);
-                    if (errors.confirmPassword) {
-                      setErrors((prev) => ({
-                        ...prev,
-                        confirmPassword: undefined,
-                      }));
-                    }
-                  }}
-                  secureTextEntry={!showConfirmPassword}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  editable={!isLoading}
-                />
-                <TouchableOpacity
-                  onPress={() => setShowConfirmPassword(!showConfirmPassword)}
-                  style={styles.eyeButton}
-                  disabled={isLoading}
-                >
-                  {showConfirmPassword ? (
-                    <EyeOff color="#9CA3AF" size={20} />
-                  ) : (
-                    <Eye color="#9CA3AF" size={20} />
-                  )}
-                </TouchableOpacity>
-              </View>
-              {errors.confirmPassword && (
-                <Text style={styles.fieldErrorText}>
-                  {errors.confirmPassword}
-                </Text>
-              )}
-            </View>
-
-            <TouchableOpacity
-              style={[
-                styles.signupButton,
-                isLoading && styles.signupButtonDisabled,
-              ]}
-              onPress={handleSignup}
-              disabled={isLoading}
-            >
-              <LinearGradient
-                colors={
-                  isLoading ? ['#9CA3AF', '#6B7280'] : ['#3B82F6', '#1D4ED8']
-                }
-                style={styles.signupButtonGradient}
-              >
-                {isLoading ? (
-                  <Text style={styles.signupButtonText}>
-                    Creating Account...
-                  </Text>
-                ) : (
-                  <>
-                    <Text style={styles.signupButtonText}>Create Account</Text>
-                    <ArrowRight color="white" size={20} />
-                  </>
-                )}
-              </LinearGradient>
-            </TouchableOpacity>
-          </View>
-
           {/* Terms */}
           <Text style={styles.termsText}>
             By creating an account, you agree to our{' '}
